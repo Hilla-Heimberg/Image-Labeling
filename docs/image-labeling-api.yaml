@@ -1,0 +1,101 @@
+openapi: 3.0.3
+info:
+  title: Image Labeling - OpenAPI 3.0
+  description: |-
+    This document describes the two endpoint that the image labeling system should support.
+    Each section has just one endpoint that should be implemented in the AWS Lambdas.
+  version: 1.0.0
+tags:
+  - name: image-uploader
+    description: Fetching a job ID and URL to upload an image to
+  - name: image-getter
+    description: Fetching a URL from which to download the processed image 
+
+paths:
+  /:
+    post:
+      servers:
+        - url: https://ENTER_IMAGE_UPLOADER_LAMBDA_URL
+      tags:
+        - image-uploader
+      summary: Generate a new image labeling processing job
+      description: Generate a job ID and a presigned URL to which an image to be procssed will be uploaded to 
+      operationId: imageUploader
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImageUpload'
+        required: true
+      responses:
+        '201':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImageUploadResponse'          
+    get:
+      servers:
+        - url: https://ENTER_IMAGE_GETTER_LAMBDA_URL
+      tags:
+        - image-getter
+      summary: Get the processed image result or the current status of the processing job
+      parameters:
+        - in: query
+          name: jobId
+          schema:
+            type: string
+          required: true
+          description: The job ID that was returned when the image uploader was called
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImageGetterResponse'  
+components:
+  schemas:
+    ImageUpload:
+      type: object
+      properties:
+        fileName:
+          type: string
+          example: "test-image.jpg"
+    ImageUploadResponse:
+      type: object
+      properties:
+        url:
+          type: string
+          example: 
+            https://some-bucket.s3.amazonaws.com/test-image.jpg?AWSAccessKeyId=AWSAccessKeyId&Signature=Signature&x-amz-meta-job-id=fd440257-1552-47e7-93a9-87d7f7ae60c8&content-type=image%2Fjpeg&x-amz-security-token=token&Expires=167327844
+        jobId:
+          type: string
+          example: fd440257-1552-47e7-93a9-87d7f7ae60c8
+    ImageGetterResponse:
+      type: object
+      properties:
+        url:
+          description: The URL of the processed image. Will be returned only if the status is "success"
+          type: string
+          example: 
+            https://some-processed-bucket.s3.amazonaws.com/test-image?AWSAccessKeyId=AWSAccessKeyId&Signature=Signature&x-amz-meta-job-id=fd440257-1552-47e7-93a9-87d7f7ae60c8&content-type=image%2Fjpeg&x-amz-security-token=token&Expires=1673278444
+        status:
+          type: string
+          example: processing
+          description: |
+            The status of the image processing job.
+            
+            "created": When the request for an image upload was made and the upload url and job ID were created.
+            
+            "processing": When the processing of the image starts.
+            
+            "failure": When the processing of the image has failed.
+            
+            "success": When the processing of the image ended and was successful.
+          enum:
+            - created
+            - processing
+            - failure
+            - success
+  

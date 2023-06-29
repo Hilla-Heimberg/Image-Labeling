@@ -1,0 +1,35 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Cloudformation template for S3 bucket resources needed for HUJI exercise 6.
+
+Parameters:
+  PairName:
+    Description: The name of the pair working on the exercise.
+    Type: String
+  CodePackageDate:
+    Description: The date of the code package in ms.
+    Type: String
+
+Resources:
+  Exercise6CodeBaseS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub huji-lightricks-exercise-6-code-${PairName}-bucket
+      AccessControl: Private
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: True
+        BlockPublicPolicy: True
+        IgnorePublicAcls: True
+        RestrictPublicBuckets: True
+
+Outputs:
+  Exercise6CodeBaseS3BucketName:
+    Description: Name of code base bucket
+    Value: !Ref Exercise6CodeBaseS3Bucket
+    Export:
+      Name: !Sub huji-lightricks-exercise-6-code-${PairName}-bucket-name
+
+  Exercise6CodeBaseS3BucketArn:
+    Description: ARN of code base bucket
+    Value: !GetAtt Exercise6CodeBaseS3Bucket.Arn
+    Export:
+      Name: !Sub huji-lightricks-exercise-6-code-${PairName}-bucket-arn

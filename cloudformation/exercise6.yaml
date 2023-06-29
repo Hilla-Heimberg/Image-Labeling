@@ -1,0 +1,247 @@
+AWSTemplateFormatVersion: 2010-09-09
+Transform: AWS::Serverless-2016-10-31
+Description: Cloudformation template for resources needed for HUJI exercise 6.
+
+Parameters:
+  PairName:
+    Description: The name of the pair working on the exercise.
+    Type: String
+  CodePackageDate:
+    Description: The date of the code package in ms.
+    Type: String
+
+Resources:
+  Exercise6ImagesS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub huji-lightricks-exercise-6-images-${PairName}-bucket
+      AccessControl: Private
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: True
+        BlockPublicPolicy: True
+        IgnorePublicAcls: True
+        RestrictPublicBuckets: True
+
+  Exercise6ProcessedImagesS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub huji-lightricks-exercise-6-processed-images-${PairName}-bucket
+      AccessControl: Private
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: True
+        BlockPublicPolicy: True
+        IgnorePublicAcls: True
+        RestrictPublicBuckets: True
+
+  ImagesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: huji-lightricks-exercise-6-images
+      AttributeDefinitions:
+        - AttributeName: image_job_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: image_job_id
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+
+  ImageUploadingLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: huji-lightricks-exercise-6-image-uploading-lambda-role
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: huji-lightricks-exercise-6-image-uploading-lambda-policy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                Resource:
+                  - !GetAtt ImagesTable.Arn
+              - Effect: Allow
+                Action: s3:PutObject
+                Resource:
+                  !Sub
+                  - ${Exercise6ImagesS3BucketArn}/*
+                  - Exercise6ImagesS3BucketArn: !GetAtt Exercise6ImagesS3Bucket.Arn
+
+  ImageUploadingLambdaFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: huji-lightricks-exercise-6-image-uploading-lambda
+      Handler: lambdas.image_uploader.handler
+      Role: !GetAtt ImageUploadingLambdaRole.Arn
+      Timeout: 25
+      CodeUri:
+        Bucket:
+          Fn::ImportValue: !Sub huji-lightricks-exercise-6-code-${PairName}-bucket-name
+        Key: !Sub ${PairName}-${CodePackageDate}-code-package.zip
+      Runtime: python3.8
+      FunctionUrlConfig:
+        AuthType: NONE
+      Environment:
+        Variables:
+          IMAGES_BUCKET_NAME: !Sub huji-lightricks-exercise-6-images-${PairName}-bucket
+
+  ImageUploadingLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    UpdateReplacePolicy: Retain
+    DeletionPolicy: Delete
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${ImageUploadingLambdaFunction}
+      RetentionInDays: 3
+
+  ImageProcessorLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: huji-lightricks-exercise-6-image-processor-lambda-role
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: huji-lightricks-exercise-6-image-processor-lambda-policy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:UpdateItem
+                  - dynamodb:PutItem
+                  - dynamodb:GetItem*
+                  - dynamodb:Query
+                Resource: !GetAtt ImagesTable.Arn
+              - Effect: Allow
+                Action: s3:PutObject
+                Resource:
+                  !Sub
+                  - ${Exercise6ProcessedImagesS3BucketArn}/*
+                  - Exercise6ProcessedImagesS3BucketArn: !GetAtt Exercise6ProcessedImagesS3Bucket.Arn
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource:
+                  !Sub arn:aws:s3:::huji-lightricks-exercise-6-images-${PairName}-bucket*
+              - Effect: Allow
+                Action: rekognition:DetectLabels
+                Resource: "*"
+              - Effect: Allow
+                Action: rekognition:RecognizeCelebrities
+                Resource: "*"
+
+  ImageProcessorLambdaFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: huji-lightricks-exercise-6-image-processor-lambda
+      Handler: lambdas.image_processor.handler
+      Role: !GetAtt ImageProcessorLambdaRole.Arn
+      Timeout: 500
+      MemorySize: 512
+      CodeUri:
+        Bucket:
+          Fn::ImportValue: !Sub huji-lightricks-exercise-6-code-${PairName}-bucket-name
+        Key: !Sub ${PairName}-${CodePackageDate}-code-package.zip
+      Runtime: python3.8
+      Layers:
+        - arn:aws:lambda:us-west-2:770693421928:layer:Klayers-p38-Pillow:5
+      Events:
+        CreateImageEvent:
+          Type: S3
+          Properties:
+            Bucket:
+              Ref: Exercise6ImagesS3Bucket
+            Events: s3:ObjectCreated:*
+      Environment:
+        Variables:
+          PROCESSED_IMAGES_BUCKET_NAME: !Sub huji-lightricks-exercise-6-processed-images-${PairName}-bucket
+
+  ImageProcessorLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    UpdateReplacePolicy: Retain
+    DeletionPolicy: Delete
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${ImageProcessorLambdaFunction}
+      RetentionInDays: 3
+
+  ImageGetterLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: huji-lightricks-exercise-6-image-getter-lambda-role
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: huji-lightricks-exercise-6-image-getter-lambda-policy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                Resource:
+                  - !GetAtt ImagesTable.Arn
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource:
+                  !Sub arn:aws:s3:::huji-lightricks-exercise-6-processed-images-${PairName}-bucket*
+
+  ImageGetterLambdaFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: huji-lightricks-exercise-6-image-getter-lambda
+      Handler: lambdas.image_getter.handler
+      Role: !GetAtt ImageGetterLambdaRole.Arn
+      Timeout: 25
+      CodeUri:
+        Bucket:
+          Fn::ImportValue: !Sub huji-lightricks-exercise-6-code-${PairName}-bucket-name
+        Key: !Sub ${PairName}-${CodePackageDate}-code-package.zip
+      Runtime: python3.8
+      FunctionUrlConfig:
+        AuthType: NONE
+
+  ImageGetterLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    UpdateReplacePolicy: Retain
+    DeletionPolicy: Delete
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${ImageGetterLambdaFunction}
+      RetentionInDays: 3
+
+Outputs:
+  ImageGetterLambdaURL:
+    Description: The URL of the image getter lambda
+    Value:
+      Fn::GetAtt: ImageGetterLambdaFunctionUrl.FunctionUrl
+    Export:
+      Name: huji-lightricks-exercise-6-image-getter-lambda-url
+
+  ImageUploadingLambdaURL:
+    Description: The URL of the image uploading lambda
+    Value:
+      Fn::GetAtt: ImageUploadingLambdaFunctionUrl.FunctionUrl
+    Export:
+      Name: huji-lightricks-exercise-6-image-uploading-lambda
